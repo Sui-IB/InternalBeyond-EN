@@ -4749,6 +4749,8 @@ async function selectFriend(id){
     document.getElementById('chat-header-name').textContent=cfg.nickname||cfg.model;
     document.getElementById('chat-mini-title').textContent=cfg.nickname||cfg.model;
   }
+  /* Auto-check/generate summary on open */
+  setTimeout(()=>autoSummaryOnOpen(id,null),300);
 }
 
 function createGroup(){
@@ -4830,6 +4832,8 @@ async function selectGroup(gid){
   }
   document.getElementById('chat-header-name').textContent=group.name;
   document.getElementById('chat-mini-title').textContent=group.name;
+  /* Auto-check/generate summary on open */
+  setTimeout(()=>autoSummaryOnOpen(gid,null),300);
 }
 
 async function deleteGroup(gid){
@@ -4905,6 +4909,8 @@ async function selectThread(friendId,threadId){
     document.getElementById('chat-header-name').textContent=(cfg.nickname||cfg.model)+' · '+threadName;
     document.getElementById('chat-mini-title').textContent=(cfg.nickname||cfg.model)+' · '+threadName;
   }
+  /* Auto-check/generate summary on open */
+  setTimeout(()=>autoSummaryOnOpen(friendId,threadId),300);
 }
 
 function searchChat(q){
@@ -5701,6 +5707,8 @@ function openChatPanel(){
   renderChatPanelFriends();
   loadChatMessages();
   document.getElementById('chat-input').focus();
+  /* Auto-check/generate summary on open */
+  if(activeFriendId)setTimeout(()=>autoSummaryOnOpen(activeFriendId,activeThreadId||null),300);
 }
 function closeChatPanel(){
   const panel=document.getElementById('chat-panel');
@@ -7259,6 +7267,41 @@ async function _doSummarize(cfg,friendId,threadId,allMsgs){
   if(newSummary){const authorLabel=(sumCfg.nickname||sumCfg.model||'AI')+(sumCfg.id!==cfg.id?' (summary)':'');
     await saveChatSummary(friendId,threadId,newSummary,toSummarize[toSummarize.length-1].timestamp,allMsgs.length-keepCount,authorLabel);return newSummary}
   return existing?existing.summary:null;
+}
+
+/* ===== AUTO SUMMARY ON CHAT OPEN ===== */
+/* Auto-check and generate summary when opening a chat (fixes: summary only triggered after sending) */
+async function autoSummaryOnOpen(friendId,threadId){
+  try{
+    const ss=await getSummarySettings();if(!ss.enabled)return;
+    const allMsgs=(await dbGetByIndex('chatMessages','byFriend',friendId))
+      .filter(m=>threadId?m.threadId===threadId:!m.threadId)
+      .sort((a,b)=>a.timestamp-b.timestamp);
+    if(allMsgs.length<SUMMARY_TRIGGER_COUNT)return;
+    const existing=await getChatSummary(friendId,threadId);
+    const keepCount=ss.keepCount||6;
+    const maxWindow=ss.summaryWindow||60;
+    const windowStart=Math.max(0,allMsgs.length-maxWindow-keepCount);
+    const windowMsgs=allMsgs.slice(windowStart);
+    let coveredInWindow=0;
+    if(existing&&existing.coveredUpTo){
+      for(let i=0;i<windowMsgs.length;i++){if(windowMsgs[i].timestamp<=existing.coveredUpTo)coveredInWindow=i+1;else break}
+    }
+    if(windowMsgs.length-coveredInWindow<SUMMARY_TRIGGER_COUNT)return;
+    let cfg;
+    if(friendId.startsWith('group_')){
+      const groups=await loadGroups();
+      const group=groups.find(g=>g.id===friendId);
+      if(group&&group.members&&group.members.length)cfg=apiConfigs.find(a=>a.id===group.members[0]);
+    }else{
+      cfg=apiConfigs.find(a=>a.id===friendId);
+    }
+    if(!cfg||!cfg.apiKey||!cfg.endpoint){
+      if(ss.summaryApiId){const sc=apiConfigs.find(a=>a.id===ss.summaryApiId);if(sc&&sc.apiKey&&sc.endpoint)cfg=sc}
+    }
+    if(!cfg||!cfg.apiKey||!cfg.endpoint)return;
+    await maybeSummarize(cfg,friendId,threadId,allMsgs);
+  }catch(e){}
 }
 
 /* ===== WELCOME-BACK TIME GAP MESSAGE (Presence v2) ===== */
