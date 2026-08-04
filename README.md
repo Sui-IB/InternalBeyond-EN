@@ -12,6 +12,8 @@ Customize your profile, character portraits, and system prompts. Connect your ow
 
 > **Quick Start**: Download the ZIP → extract → open `InternalBeyond.html` in your browser.
 
+（作者留言：由于本人Claude账号被封，英文版日后再更新……）
+
 ---
 
 ## ✦ Quick Start
